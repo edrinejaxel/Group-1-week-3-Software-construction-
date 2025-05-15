@@ -15,3 +15,12 @@ class AccountNotFoundError(DomainError):
 
 class TransactionLimitExceededError(DomainError):
     pass
+
+class AccountLockedError(Exception):
+    pass
+
+class TransactionLimitError(Exception):
+    pass
+
+class MinimumBalanceError(Exception):
+    pass
