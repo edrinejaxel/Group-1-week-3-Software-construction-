@@ -55,3 +55,17 @@ class ConfigurableSavingsInterestStrategy(ConfigurableInterestStrategy):
 
     def __init__(self, config: InterestConfig = None):
         super().__init__(config or self.DEFAULT_CONFIG)
+
+class CheckingInterestStrategy(InterestStrategy):
+    def calculate_interest(self, balance: float) -> float:
+        if balance <= 0:
+            return 0.0
+        # 1% APR for checking accounts
+        return balance * 0.01
+
+class SavingsInterestStrategy(InterestStrategy):
+    def calculate_interest(self, balance: float) -> float:
+        if balance <= 0:
+            return 0.0
+        # 3% APR for savings accounts
+        return balance * 0.03
