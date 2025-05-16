@@ -3,6 +3,7 @@ from presentation.api.accounts import router as accounts_router
 from presentation.api.notifications import router as notifications_router
 from presentation.api.statements import router as statements_router
 from presentation.api.transfers import router as transfers_router
+from infrastructure.repositories.shared_repositories import account_repo, transaction_repo
 
 app = FastAPI(title="Simple Banking Application")
 

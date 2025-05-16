@@ -8,7 +8,7 @@ class LimitConstraint:
     monthly_limit: float
 
     def check_deposit(self, account: "domain.entities.account.Account", amount: float) -> None:
-        pass  # No deposit limits for simplicity
+        pass
 
     def check_withdrawal(self, account: "domain.entities.account.Account", amount: float) -> None:
         new_daily_spent = account.daily_spent + amount

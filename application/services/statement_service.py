@@ -26,10 +26,22 @@ class StatementService:
             raise AccountNotFoundError(f"Account {account_id} not found")
 
         transactions = self.transaction_repository.get_transactions_for_account(account_id)
+        
+        # Convert timestamps to naive UTC if they're timezone-aware
+        def normalize_timestamp(dt: datetime) -> datetime:
+            if dt.tzinfo is not None:
+                return dt.replace(tzinfo=None)
+            return dt
+
+        # Ensure all timestamps are naive
+        start_date = normalize_timestamp(start_date)
+        end_date = normalize_timestamp(end_date)
+        
         filtered_transactions = [
             t for t in transactions
-            if start_date <= t.timestamp <= end_date
+            if start_date <= normalize_timestamp(t.timestamp) <= end_date
         ]
+        
         return self.statement_adapter.generate(
             account=account,
             transactions=filtered_transactions,

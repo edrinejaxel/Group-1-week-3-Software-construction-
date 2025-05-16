@@ -1,10 +1,10 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 from uuid import UUID
 from typing import Literal
-from datetime import date
+from datetime import date, datetime
 
-from domain.entities.account import Account, AccountType
+from domain.entities.account import Account, AccountType, AccountStatus
 from application.services.account_creation_service import AccountCreationService
 from application.services.transaction_service import TransactionService
 from application.services.fund_transfer_service import FundTransferService
@@ -18,38 +18,31 @@ from domain.exceptions.domain_exceptions import (
     AccountNotFoundError,
     TransactionLimitExceededError,
 )
-from infrastructure.repositories.account_repository import InMemoryAccountRepository
-from infrastructure.repositories.transaction_repository import InMemoryTransactionRepository
+from infrastructure.repositories.shared_repositories import account_repo, transaction_repo
 from infrastructure.adapters.notification_adapter import MockNotificationAdapter
 from infrastructure.adapters.logging_adapter import LoggingAdapter
 
 router = APIRouter()
 
 # Dependency injection setup
-account_repo = InMemoryAccountRepository()
-transaction_repo = InMemoryTransactionRepository()
 notification_adapter = MockNotificationAdapter()
 logging_adapter = LoggingAdapter()
 
 # Service initialization
 notification_service = NotificationService(notification_adapter)
 account_creation_service = AccountCreationService(account_repo)
-transaction_service = TransactionService(
-    account_repo, 
-    transaction_repo, 
-    notification_service
-)
+transaction_service = TransactionService(account_repo, transaction_repo, notification_service)
 fund_transfer_service = logging_adapter.log_method(FundTransferService(account_repo, transaction_repo, notification_service))
-interest_service = logging_adapter.log_method(InterestService(account_repo, notification_service))
+interest_service = InterestService(account_repo, notification_service)
 limit_enforcement_service = logging_adapter.log_method(LimitEnforcementService(account_repo))
 
 # Pydantic models
 class CreateAccountRequest(BaseModel):
-    account_type: Literal["CHECKING", "SAVINGS"]
-    initial_deposit: float = Field(default=0.0, ge=0.0)
+    account_type: str
+    initial_deposit: float
 
 class TransactionRequest(BaseModel):
-    amount: float = Field(gt=0.0)
+    amount: float
 
 class TransferRequest(BaseModel):
     source_account_id: UUID
@@ -61,7 +54,7 @@ class LimitRequest(BaseModel):
     monthly_limit: float = Field(ge=0.0)
 
 class InterestRequest(BaseModel):
-    calculation_date: date
+    pass  # We might add fields here later if needed
 
 class AccountResponse(BaseModel):
     account_id: UUID
@@ -76,7 +69,7 @@ class TransactionResponse(BaseModel):
     transaction_type: str
     amount: float
     timestamp: str
-    destination_account_id: UUID | None
+    destination_account_id: UUID | None = None
 
 class LimitResponse(BaseModel):
     daily_limit: float
@@ -87,14 +80,14 @@ class LimitResponse(BaseModel):
 @router.post("/", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
 async def create_account(request: CreateAccountRequest):
     try:
-        # Create the account using the service
-        account = Account.create(
-            account_type=AccountType(request.account_type),
-            initial_deposit=request.initial_deposit
+        # Use the service to create the account
+        account_id = account_creation_service.create_account(
+            request.account_type,
+            request.initial_deposit
         )
         
-        # Save to repository
-        account_repo.create_account(account)
+        # Get the created account
+        account = account_repo.get_account_by_id(account_id)
         
         # Return the response
         return AccountResponse(
@@ -134,7 +127,7 @@ async def withdraw(account_id: UUID, request: TransactionRequest):
             timestamp=transaction.timestamp.isoformat(),
             destination_account_id=transaction.destination_account_id,
         )
-    except (AccountNotFoundError, InvalidAmountError, InvalidAccountStatusError, InsufficientFundsError, TransactionLimitExceededError) as e:
+    except (AccountNotFoundError, InvalidAmountError, InvalidAccountStatusError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/transfer", response_model=TransactionResponse)
@@ -178,12 +171,18 @@ async def update_limits(account_id: UUID, request: LimitRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/{account_id}/balance")
-async def get_balance(account_id: UUID):
+@router.get("/{account_id}", response_model=AccountResponse)
+async def get_account(account_id: UUID):
     account = account_repo.get_account_by_id(account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-    return {"balance": account.balance, "available_balance": account.balance}
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+    return AccountResponse(
+        account_id=account.account_id,
+        account_type=account.account_type.value,
+        balance=account.balance,
+        status=account.status.value,
+        creation_date=account.creation_date.isoformat()
+    )
 
 @router.get("/{account_id}/transactions", response_model=list[TransactionResponse])
 async def get_transactions(account_id: UUID):
