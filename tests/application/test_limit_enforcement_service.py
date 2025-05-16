@@ -28,7 +28,7 @@ def test_set_limits_success(limit_enforcement_service, account_repository, accou
     assert updated_account.limit_constraint.monthly_limit == 500.0
 
 def test_set_limits_account_not_found(limit_enforcement_service):
-    with pytest.raises(Exception):  # Replace with specific exception if defined
+    with pytest.raises(Exception):  
         limit_enforcement_service.set_limits(uuid4(), 100.0, 500.0)
 
 def test_reset_limits(limit_enforcement_service, account_repository, account):
@@ -40,3 +40,16 @@ def test_reset_limits(limit_enforcement_service, account_repository, account):
     updated_account = account_repository.get_account_by_id(account.account_id)
     assert updated_account.daily_spent == 0.0  # Reset for next day
     assert updated_account.monthly_spent == 0.0  # Reset for next month
+
+def reset_limits(self, account_id: UUID) -> None:
+    account = self.account_repository.get_account_by_id(account_id)
+    if not account:
+        raise AccountNotFoundError(f"Account {account_id} not found")
+
+    # Reset limits
+    account.daily_spent = 0.0
+    account.monthly_spent = 0.0
+    account.transaction_count = 0
+
+    account.reset_limits(datetime.utcnow() + timedelta(days=1))
+    self.account_repository.update_account(account)

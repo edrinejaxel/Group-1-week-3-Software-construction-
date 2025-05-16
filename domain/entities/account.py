@@ -92,21 +92,31 @@ class Account:
             raise InvalidAccountStatusError("Account is not active")
 
     def withdraw(self, amount: float) -> None:
-        self.validate_transaction()
-        
+        # First validate basic conditions
         if amount <= 0:
             raise InvalidAmountError("Withdrawal amount must be positive")
-            
-        available_balance = self.balance + self.overdraft_limit
-        if self.account_type == AccountType.SAVINGS:
-            if self.balance - amount < self.minimum_balance:
-                raise InsufficientFundsError(f"Cannot go below minimum balance of ${self.minimum_balance}")
-        elif amount > available_balance:
-            raise InsufficientFundsError("Insufficient funds including overdraft limit")
-        
+
+        # Validate account status and limits
+        self.validate_transaction()
+
+        # Calculate available balance including overdraft if applicable
+        available_balance = self.balance
+        if self.account_type == AccountType.CHECKING:
+            available_balance += self.overdraft_limit
+
+        # Check if withdrawal would exceed available balance
+        if amount > available_balance:
+            raise InsufficientFundsError(f"Insufficient funds. Available balance: ${available_balance}")
+
+        # For savings accounts, ensure minimum balance is maintained
+        if self.account_type == AccountType.SAVINGS and (self.balance - amount) < self.minimum_balance:
+            raise InsufficientFundsError(f"Cannot go below minimum balance of ${self.minimum_balance}")
+
+        # Check withdrawal limits if configured
         if self.limit_constraint:
             self.limit_constraint.check_withdrawal(self, amount)
-            
+
+        # Process withdrawal
         self.balance -= amount
         self.daily_spent += amount
         self.monthly_spent += amount
@@ -148,14 +158,21 @@ class Account:
         if not self.last_reset_date:
             self.last_reset_date = current_date
             return
-        # Reset daily limits
-        if current_date.date() > self.last_reset_date.date():
-            self.daily_spent = 0.0
-        # Reset monthly limits only if a full month has passed
-        if (current_date.year > self.last_reset_date.year or
-                (current_date.year == self.last_reset_date.year and
-                 current_date.month > self.last_reset_date.month)):
+
+        # Get dates for comparison
+        current = current_date.date()
+        last = self.last_reset_date.date()
+
+        # Month change takes precedence - reset both monthly and daily
+        if current.month != last.month or current.year != last.year:
             self.monthly_spent = 0.0
+            self.daily_spent = 0.0
+            self.transaction_count = 0
+        # Day change - reset only daily
+        elif current > last:
+            self.daily_spent = 0.0
+            self.transaction_count = 0
+
         self.last_reset_date = current_date
 
     def increment_failed_attempts(self) -> None:

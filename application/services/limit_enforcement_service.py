@@ -24,5 +24,12 @@ class LimitEnforcementService:
         account = self.account_repository.get_account_by_id(account_id)
         if not account:
             raise AccountNotFoundError(f"Account {account_id} not found")
-        account.reset_limits(datetime.utcnow() + timedelta(days=1))
+
+        account.daily_spent = 0.0
+        account.monthly_spent = 0.0
+        account.transaction_count = 0
+        
+        # Update the reset date
+        account.last_reset_date = datetime.utcnow() + timedelta(days=1)
+        
         self.account_repository.update_account(account)
