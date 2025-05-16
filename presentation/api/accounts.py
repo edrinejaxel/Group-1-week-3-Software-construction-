@@ -4,6 +4,7 @@ from uuid import UUID
 from typing import Literal
 from datetime import date
 
+from domain.entities.account import Account, AccountType
 from application.services.account_creation_service import AccountCreationService
 from application.services.transaction_service import TransactionService
 from application.services.fund_transfer_service import FundTransferService
@@ -24,14 +25,20 @@ from infrastructure.adapters.logging_adapter import LoggingAdapter
 
 router = APIRouter()
 
-# Dependency injection
+# Dependency injection setup
 account_repo = InMemoryAccountRepository()
 transaction_repo = InMemoryTransactionRepository()
 notification_adapter = MockNotificationAdapter()
 logging_adapter = LoggingAdapter()
-notification_service = logging_adapter.log_method(NotificationService(notification_adapter))
-account_creation_service = logging_adapter.log_method(AccountCreationService(account_repo))
-transaction_service = logging_adapter.log_method(TransactionService(account_repo, transaction_repo, notification_service))
+
+# Service initialization
+notification_service = NotificationService(notification_adapter)
+account_creation_service = AccountCreationService(account_repo)
+transaction_service = TransactionService(
+    account_repo, 
+    transaction_repo, 
+    notification_service
+)
 fund_transfer_service = logging_adapter.log_method(FundTransferService(account_repo, transaction_repo, notification_service))
 interest_service = logging_adapter.log_method(InterestService(account_repo, notification_service))
 limit_enforcement_service = logging_adapter.log_method(LimitEnforcementService(account_repo))
@@ -80,16 +87,22 @@ class LimitResponse(BaseModel):
 @router.post("/", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
 async def create_account(request: CreateAccountRequest):
     try:
-        account_id = account_creation_service.create_account(
-            request.account_type, request.initial_deposit
+        # Create the account using the service
+        account = Account.create(
+            account_type=AccountType(request.account_type),
+            initial_deposit=request.initial_deposit
         )
-        account = account_repo.get_account_by_id(account_id)
+        
+        # Save to repository
+        account_repo.create_account(account)
+        
+        # Return the response
         return AccountResponse(
             account_id=account.account_id,
             account_type=account.account_type.value,
             balance=account.balance,
             status=account.status.value,
-            creation_date=account.creation_date.isoformat(),
+            creation_date=account.creation_date.isoformat()
         )
     except (ValueError, InvalidAmountError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -155,13 +168,15 @@ async def calculate_interest(account_id: UUID, request: InterestRequest):
 async def update_limits(account_id: UUID, request: LimitRequest):
     try:
         limit_enforcement_service.set_limits(
-            account_id,
-            request.daily_limit,
-            request.monthly_limit
+            account_id=account_id,
+            daily_limit=request.daily_limit,
+            monthly_limit=request.monthly_limit
         )
         return {"message": "Limits updated successfully"}
     except AccountNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{account_id}/balance")
 async def get_balance(account_id: UUID):
